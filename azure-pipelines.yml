@@ -6,6 +6,60 @@
 trigger:
 - master
 
+resources:
+- repo: self
+
+variables:
+  dockerfilePath: '$(Build.SourcesDirectory)/src/Dockerfile'
+  webRepository: 'web'
+  tag: '$(Build.BuildId)'
+  vmImageName: 'ubuntu-latest'
+
+stages:
+- stage: Build
+  displayName: Build and publish Java container
+  jobs:  
+  - job: Build
+    displayName: Build
+    pool:
+      vmImage: $(vmImageName)
+    variables:
+    - group: Release
+    steps:
+    - task: Maven@3
+      displayName: 'Maven pom.xml'
+      inputs:
+      options: '-DskipITs --settings ./maven/settings.xml'
+      publishJUnitResults: false
+    - task: CopyFiles@2
+      displayName: Copy WAR file to staging directory
+      inputs:
+        sourceFolder: '$(build.sourcesdirectory)'
+        contents: |
+          target/myshuttledev*.war
+          *.sql
+        targetFolder: '$(build.artifactstagingdirectory)'
+    - task: Docker@2
+      displayName: Build and push Java container image to registry
+      inputs:
+        command: buildAndPush
+        buildContext: '$(build.artifactstagingdirectory)'
+        repository: $(webRepository)
+        dockerfile: $(dockerfilePath)
+        containerRegistry: 'Container Registry Connection'
+        tags: |
+          $(tag)  
+    - task: AzureMysqlDeployment@1
+      displayName: Run MySQL initialization script
+      inputs:
+        azureSubscription: 'Azure Connection'
+        serverName: '$(MySqlServer).mysql.database.azure.com'
+        databaseName: 'alm'
+        sqlUsername: $(MySqlUserName)@$(MySqlServer)
+        sqlPassword: $(MySqlPassword)
+        sqlFile: '$(Build.SourcesDirectory)/CreateMYSQLDB.sql'
+
+
 pool:
   vmImage: 'ubuntu-latest'
 
